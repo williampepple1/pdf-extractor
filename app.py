@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional
 import io
 import json
+import re
+from urllib.parse import quote
 
 from pdf_extractor import PDFExtractor
 
@@ -46,6 +48,9 @@ async def root():
             "extract_lines": "/extract/lines (defaults to CSV)",
             "extract_lines_json": "/extract/lines/json",
             "extract_lines_csv": "/extract/lines/csv",
+            "extract_sentences": "/extract/sentences (defaults to CSV)",
+            "extract_sentences_json": "/extract/sentences/json",
+            "extract_sentences_csv": "/extract/sentences/csv",
             "info": "/info"
         }
     }
@@ -511,6 +516,267 @@ async def extract_lines(file: UploadFile = File(...)):
     """
     # Call the CSV endpoint function
     return await extract_lines_csv(file)
+
+
+# Extract Sentences - JSON
+@app.post("/extract/sentences/json")
+async def extract_sentences_json(file: UploadFile = File(...)):
+    """
+    Extract text from PDF sentence by sentence, where each sentence is separated by punctuation marks
+    
+    Sentence separators: . ! ? ; : , (included in output)
+    Also splits on wide spaces (headers/subheaders with extra spacing)
+    
+    - **file**: PDF file to extract from
+    
+    Returns extracted data as downloadable JSON file with each sentence as a separate entry
+    """
+    tmp_path = None
+    try:
+        tmp_path, filename = await process_pdf_file(file)
+        
+        with PDFExtractor(tmp_path) as extractor:
+            sentences_data = []
+            sentence_number = 1
+            
+            # Extract from all pages
+            for page_num in range(1, extractor.total_pages + 1):
+                page = extractor.doc[page_num - 1]
+                text = page.get_text()
+                
+                # Split text by sentence separators and wide spaces
+                # Pattern 1: Split on punctuation marks (. ! ? ; : ,) followed by whitespace
+                # Pattern 2: Split on wide spaces (2+ spaces, tabs, etc.) - for headers/subheaders
+                # We'll use a regex that captures both patterns
+                
+                # First, split on wide spaces (2+ spaces, tabs, or newlines with spacing)
+                # This handles headers/subheaders
+                wide_space_pattern = r'(\s{2,}|\t+)'
+                parts = re.split(wide_space_pattern, text)
+                
+                all_segments = []
+                for part in parts:
+                    if part.strip():  # Skip empty parts
+                        # Now split each part by sentence separators, keeping punctuation
+                        # Pattern: split before punctuation marks (. ! ? ; : ,) when followed by whitespace
+                        sentence_pattern = r'([.!?;:,]+)(?=\s+|$)'
+                        segments = re.split(sentence_pattern, part)
+                        
+                        current_segment = ""
+                        for i, segment in enumerate(segments):
+                            if segment.strip():
+                                # Check if this segment ends with punctuation
+                                if re.match(r'^[.!?;:,]+$', segment):
+                                    # This is punctuation, attach to previous segment
+                                    if current_segment:
+                                        all_segments.append(current_segment + segment)
+                                        current_segment = ""
+                                    else:
+                                        # No previous segment, create new one with punctuation
+                                        all_segments.append(segment)
+                                else:
+                                    # Check if next segment is punctuation
+                                    if i + 1 < len(segments) and re.match(r'^[.!?;:,]+$', segments[i + 1]):
+                                        current_segment = segment
+                                    else:
+                                        # Regular text segment
+                                        if current_segment:
+                                            all_segments.append(current_segment + segment)
+                                            current_segment = ""
+                                        else:
+                                            all_segments.append(segment)
+                        
+                        # Add any remaining current_segment
+                        if current_segment:
+                            all_segments.append(current_segment)
+                
+                # Process all segments
+                for segment in all_segments:
+                    segment_text = segment.strip()
+                    # Only include non-empty segments
+                    if segment_text:
+                        sentences_data.append({
+                            "sentence_number": sentence_number,
+                            "page_number": page_num,
+                            "text": segment_text
+                        })
+                        sentence_number += 1
+            
+            json_data = {
+                "filename": filename,
+                "total_pages": extractor.total_pages,
+                "total_sentences": len(sentences_data),
+                "data": sentences_data
+            }
+            
+            json_content = json.dumps(json_data, indent=2, ensure_ascii=False)
+            safe_filename = Path(filename).stem + "_sentences.json"
+            
+            return StreamingResponse(
+                io.BytesIO(json_content.encode('utf-8')),
+                media_type="application/octet-stream",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                    "Content-Type": "application/json"
+                }
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+    
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+# Extract Sentences - CSV
+@app.post("/extract/sentences/csv")
+async def extract_sentences_csv(file: UploadFile = File(...)):
+    """
+    Extract text from PDF sentence by sentence, where each sentence is separated by punctuation marks
+    
+    Sentence separators: . ! ? ; : , (included in output)
+    Also splits on wide spaces (headers/subheaders with extra spacing)
+    
+    - **file**: PDF file to extract from
+    
+    Returns extracted data as downloadable CSV file with each sentence as a separate row
+    """
+    tmp_path = None
+    try:
+        tmp_path, filename = await process_pdf_file(file)
+        
+        with PDFExtractor(tmp_path) as extractor:
+            sentences_data = []
+            sentence_number = 1
+            
+            # Extract from all pages
+            for page_num in range(1, extractor.total_pages + 1):
+                page = extractor.doc[page_num - 1]
+                text = page.get_text()
+                
+                # Split text into segments:
+                # 1. Split on wide spaces (2+ spaces, tabs) - for headers/subheaders
+                # 2. Split on sentence separators (. ! ? ; : ,) but keep punctuation
+                
+                # First, split on wide spaces (2+ spaces or tabs) - these create separate rows
+                wide_space_pattern = r'\s{2,}|\t+'
+                parts = re.split(wide_space_pattern, text)
+                
+                all_segments = []
+                for part in parts:
+                    part = part.strip()
+                    if not part:
+                        continue
+                    
+                    # Now split by sentence separators, keeping punctuation with the preceding text
+                    # Pattern: split before punctuation marks, but include punctuation with previous segment
+                    # This regex finds punctuation marks and splits, keeping punctuation with text before it
+                    sentence_pattern = r'([.!?;:,]+)(?=\s+|$)'
+                    
+                    # Split the text, but capture punctuation marks
+                    segments = re.split(sentence_pattern, part)
+                    
+                    current_text = ""
+                    for i, segment in enumerate(segments):
+                        if not segment.strip():
+                            continue
+                        
+                        # Check if this segment is punctuation
+                        if re.match(r'^[.!?;:,]+$', segment):
+                            # This is punctuation - attach to previous text
+                            if current_text:
+                                all_segments.append(current_text + segment)
+                                current_text = ""
+                            else:
+                                # No previous text, just add punctuation as separate segment
+                                all_segments.append(segment)
+                        else:
+                            # This is text
+                            if current_text:
+                                # We have previous text without punctuation, add it
+                                all_segments.append(current_text)
+                            current_text = segment
+                    
+                    # Add any remaining text
+                    if current_text:
+                        all_segments.append(current_text)
+                
+                # Process all segments
+                for segment in all_segments:
+                    segment_text = segment.strip()
+                    # Only include non-empty segments
+                    if segment_text:
+                        sentences_data.append({
+                            "sentence_number": sentence_number,
+                            "page_number": page_num,
+                            "text": segment_text
+                        })
+                        sentence_number += 1
+            
+            # Create CSV
+            import pandas as pd
+            
+            # Ensure we have data
+            if not sentences_data:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No sentences found in PDF. The PDF might be empty or contain only images."
+                )
+            
+            df = pd.DataFrame(sentences_data)
+            
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False, encoding='utf-8')
+            csv_content = csv_buffer.getvalue()
+            
+            safe_filename = Path(filename).stem + "_sentences.csv"
+            
+            # Ensure CSV content is not empty
+            if not csv_content.strip():
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to generate CSV content"
+                )
+            
+            # URL encode filename for proper handling
+            encoded_filename = quote(safe_filename)
+            
+            return StreamingResponse(
+                io.BytesIO(csv_content.encode('utf-8')),
+                media_type="application/octet-stream",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}',
+                    "Content-Type": "text/csv; charset=utf-8"
+                }
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+    
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+# Extract Sentences - Default (CSV) - Must be after extract_sentences_csv is defined
+@app.post("/extract/sentences")
+async def extract_sentences(file: UploadFile = File(...)):
+    """
+    Extract text from PDF sentence by sentence, where each sentence is separated by punctuation marks (default)
+    
+    Sentence separators: . ! ? ; : ,
+    
+    - **file**: PDF file to extract from
+    
+    Returns extracted data as downloadable CSV file with each sentence as a separate row
+    """
+    # Call the CSV endpoint function
+    return await extract_sentences_csv(file)
 
 
 @app.post("/info")
