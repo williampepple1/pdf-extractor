@@ -49,16 +49,16 @@ pip install -r requirements.txt
 python app.py
 
 # Option 2: Using uvicorn directly (recommended)
-uvicorn app:app --host 127.0.0.1 --port 8001 --reload
+uvicorn app:app --host 127.0.0.1 --port 8080 --reload
 ```
 
-The server will start at `http://localhost:8001`
+The server will start at `http://localhost:8080`
 
 ### Access API Documentation
 
 Once the server is running, visit:
-- 📖 **Swagger UI**: `http://localhost:8001/docs`
-- 📚 **ReDoc**: `http://localhost:8001/redoc`
+- 📖 **Swagger UI**: `http://localhost:8080/docs`
+- 📚 **ReDoc**: `http://localhost:8080/redoc`
 
 ---
 
@@ -163,12 +163,12 @@ Extract text from all pages of a PDF.
 **Example with curl:**
 ```bash
 # JSON download
-curl -X POST "http://localhost:8001/extract/all/json" \
+curl -X POST "http://localhost:8080/extract/all/json" \
   -F "file=@document.pdf" \
   -o output.json
 
 # CSV download
-curl -X POST "http://localhost:8001/extract/all/csv" \
+curl -X POST "http://localhost:8080/extract/all/csv" \
   -F "file=@document.pdf" \
   -o output.csv
 ```
@@ -180,7 +180,7 @@ import requests
 with open("document.pdf", "rb") as f:
     # Get JSON file
     response = requests.post(
-        "http://localhost:8001/extract/all/json",
+        "http://localhost:8080/extract/all/json",
         files={"file": f}
     )
     with open("output.json", "wb") as out_file:
@@ -189,7 +189,7 @@ with open("document.pdf", "rb") as f:
     # Get CSV file
     f.seek(0)  # Reset file pointer
     response = requests.post(
-        "http://localhost:8001/extract/all/csv",
+        "http://localhost:8080/extract/all/csv",
         files={"file": f}
     )
     with open("output.csv", "wb") as out_file:
@@ -215,12 +215,12 @@ Extract text from a specific page.
 **Example:**
 ```bash
 # Extract page 1 as JSON
-curl -X POST "http://localhost:8001/extract/page/json?page=1" \
+curl -X POST "http://localhost:8080/extract/page/json?page=1" \
   -F "file=@document.pdf" \
   -o page1.json
 
 # Extract page 1 as CSV
-curl -X POST "http://localhost:8001/extract/page/csv?page=1" \
+curl -X POST "http://localhost:8080/extract/page/csv?page=1" \
   -F "file=@document.pdf" \
   -o page1.csv
 ```
@@ -243,12 +243,12 @@ Extract text from entire PDF as a single combined block.
 **Example:**
 ```bash
 # Extract whole document as JSON
-curl -X POST "http://localhost:8001/extract/whole/json" \
+curl -X POST "http://localhost:8080/extract/whole/json" \
   -F "file=@document.pdf" \
   -o whole_document.json
 
 # Extract whole document as CSV
-curl -X POST "http://localhost:8001/extract/whole/csv" \
+curl -X POST "http://localhost:8080/extract/whole/csv" \
   -F "file=@document.pdf" \
   -o whole_document.csv
 ```
@@ -279,17 +279,17 @@ Extract text line by line, where each line becomes a separate row in CSV or entr
 **Example:**
 ```bash
 # Extract lines as CSV (default)
-curl -X POST "http://localhost:8001/extract/lines" \
+curl -X POST "http://localhost:8080/extract/lines" \
   -F "file=@document.pdf" \
   -o lines.csv
 
 # Extract lines as JSON
-curl -X POST "http://localhost:8001/extract/lines/json" \
+curl -X POST "http://localhost:8080/extract/lines/json" \
   -F "file=@document.pdf" \
   -o lines.json
 
 # Extract lines as CSV (explicit)
-curl -X POST "http://localhost:8001/extract/lines/csv" \
+curl -X POST "http://localhost:8080/extract/lines/csv" \
   -F "file=@document.pdf" \
   -o lines.csv
 ```
@@ -347,17 +347,17 @@ Extract text sentence by sentence, perfect for translation workflows! Each sente
 **Example:**
 ```bash
 # Extract sentences as CSV (default)
-curl -X POST "http://localhost:8001/extract/sentences" \
+curl -X POST "http://localhost:8080/extract/sentences" \
   -F "file=@document.pdf" \
   -o sentences.csv
 
 # Extract sentences as JSON
-curl -X POST "http://localhost:8001/extract/sentences/json" \
+curl -X POST "http://localhost:8080/extract/sentences/json" \
   -F "file=@document.pdf" \
   -o sentences.json
 
 # Extract sentences as CSV (explicit)
-curl -X POST "http://localhost:8001/extract/sentences/csv" \
+curl -X POST "http://localhost:8080/extract/sentences/csv" \
   -F "file=@document.pdf" \
   -o sentences.csv
 ```
@@ -410,7 +410,7 @@ Get PDF metadata without extracting text.
 
 **Example:**
 ```bash
-curl -X POST "http://localhost:8001/info" \
+curl -X POST "http://localhost:8080/info" \
   -F "file=@document.pdf"
 ```
 
